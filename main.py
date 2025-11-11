@@ -1,4 +1,4 @@
-﻿# main.py - API FastAPI Completa con Notificaciones y Datos Iniciales
+﻿# main.py - API FastAPI Completa con Notificaciones y Datos Iniciales (CORREGIDA)
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, create_engine, Session, select
@@ -16,13 +16,14 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./temp.db")
 engine = create_engine(DATABASE_URL, echo=True)
 
-# === MODELOS DE DATOS ===
+# === MODELOS DE DATOS CORREGIDOS ===
 class Socio(SQLModel, table=True):
     id: str = Field(primary_key=True)
     nombre: str
     vencimiento: str
-    email: Optional[str] = None
-    telefono: Optional[str] = None
+    # REMOVER email y telefono por ahora para evitar el error
+    # email: Optional[str] = None
+    # telefono: Optional[str] = None
 
 class Entrada(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -132,20 +133,20 @@ def inicializar_datos_iniciales():
         hoy = datetime.now().date()
         socios = [
             # Socios con membresía vigente
-            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=15)).strftime("%Y-%m-%d"), email="ana@email.com", telefono="+1234567890"),
-            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d"), email="carlos@email.com", telefono="+1234567891"),
-            Socio(id="1003", nombre="María Rodríguez", vencimiento=(hoy + timedelta(days=45)).strftime("%Y-%m-%d"), email="maria@email.com", telefono="+1234567892"),
-            Socio(id="1004", nombre="Pedro Martínez", vencimiento=(hoy + timedelta(days=60)).strftime("%Y-%m-%d"), email="pedro@email.com", telefono="+1234567893"),
+            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=15)).strftime("%Y-%m-%d")),
+            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d")),
+            Socio(id="1003", nombre="María Rodríguez", vencimiento=(hoy + timedelta(days=45)).strftime("%Y-%m-%d")),
+            Socio(id="1004", nombre="Pedro Martínez", vencimiento=(hoy + timedelta(days=60)).strftime("%Y-%m-%d")),
             
             # Socios con membresía próxima a vencer
-            Socio(id="1005", nombre="Laura Hernández", vencimiento=(hoy + timedelta(days=3)).strftime("%Y-%m-%d"), email="laura@email.com", telefono="+1234567894"),
-            Socio(id="1006", nombre="Juan Pérez", vencimiento=(hoy + timedelta(days=2)).strftime("%Y-%m-%d"), email="juan@email.com", telefono="+1234567895"),
-            Socio(id="1007", nombre="Sofía Torres", vencimiento=(hoy + timedelta(days=1)).strftime("%Y-%m-%d"), email="sofia@email.com", telefono="+1234567896"),
-            Socio(id="1008", nombre="Diego Sánchez", vencimiento=hoy.strftime("%Y-%m-%d"), email="diego@email.com", telefono="+1234567897"),
+            Socio(id="1005", nombre="Laura Hernández", vencimiento=(hoy + timedelta(days=3)).strftime("%Y-%m-%d")),
+            Socio(id="1006", nombre="Juan Pérez", vencimiento=(hoy + timedelta(days=2)).strftime("%Y-%m-%d")),
+            Socio(id="1007", nombre="Sofía Torres", vencimiento=(hoy + timedelta(days=1)).strftime("%Y-%m-%d")),
+            Socio(id="1008", nombre="Diego Sánchez", vencimiento=hoy.strftime("%Y-%m-%d")),
             
             # Socios con membresía vencida
-            Socio(id="1009", nombre="Elena Vega", vencimiento=(hoy - timedelta(days=5)).strftime("%Y-%m-%d"), email="elena@email.com", telefono="+1234567898"),
-            Socio(id="1010", nombre="Miguel Ruiz", vencimiento=(hoy - timedelta(days=10)).strftime("%Y-%m-%d"), email="miguel@email.com", telefono="+1234567899"),
+            Socio(id="1009", nombre="Elena Vega", vencimiento=(hoy - timedelta(days=5)).strftime("%Y-%m-%d")),
+            Socio(id="1010", nombre="Miguel Ruiz", vencimiento=(hoy - timedelta(days=10)).strftime("%Y-%m-%d")),
         ]
         
         for socio in socios:
@@ -296,8 +297,9 @@ def obtener_vencimientos_proximos(dias: int = 3, session: Session = Depends(get_
                     "vencimiento": socio.vencimiento,
                     "dias_restantes": dias_restantes,
                     "estado": "HOY" if dias_restantes == 0 else f"en {dias_restantes} días",
-                    "email": socio.email,
-                    "telefono": socio.telefono
+                    # REMOVER email y telefono por ahora
+                    # "email": socio.email,
+                    # "telefono": socio.telefono
                 })
         except Exception as e:
             logger.warning(f"Error procesando socio {socio.id}: {e}")
@@ -330,8 +332,9 @@ def obtener_socios_morosos(session: Session = Depends(get_session)):
                     "vencimiento": socio.vencimiento,
                     "dias_vencido": dias_vencido,
                     "estado": f"Vencida hace {dias_vencido} días",
-                    "email": socio.email,
-                    "telefono": socio.telefono
+                    # REMOVER email y telefono por ahora
+                    # "email": socio.email,
+                    # "telefono": socio.telefono
                 })
         except Exception as e:
             logger.warning(f"Error procesando socio {socio.id}: {e}")
@@ -437,15 +440,15 @@ def crear_datos_prueba_notificaciones(session: Session = Depends(get_session)):
         hoy = datetime.now().date()
         socios = [
             # Vencen pronto
-            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=2)).strftime("%Y-%m-%d"), email="ana@email.com", telefono="+1234567890"),
-            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=1)).strftime("%Y-%m-%d"), email="carlos@email.com", telefono="+1234567891"),
+            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=2)).strftime("%Y-%m-%d")),
+            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=1)).strftime("%Y-%m-%d")),
             # Morosos
-            Socio(id="1003", nombre="María Rodríguez", vencimiento=(hoy - timedelta(days=5)).strftime("%Y-%m-%d"), email="maria@email.com", telefono="+1234567892"),
-            Socio(id="1004", nombre="Pedro Martínez", vencimiento=(hoy - timedelta(days=15)).strftime("%Y-%m-%d"), email="pedro@email.com", telefono="+1234567893"),
+            Socio(id="1003", nombre="María Rodríguez", vencimiento=(hoy - timedelta(days=5)).strftime("%Y-%m-%d")),
+            Socio(id="1004", nombre="Pedro Martínez", vencimiento=(hoy - timedelta(days=15)).strftime("%Y-%m-%d")),
             # Al día
-            Socio(id="1005", nombre="Laura Hernández", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d"), email="laura@email.com", telefono="+1234567894"),
+            Socio(id="1005", nombre="Laura Hernández", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d")),
             # Vence hoy
-            Socio(id="1006", nombre="Juan Pérez", vencimiento=hoy.strftime("%Y-%m-%d"), email="juan@email.com", telefono="+1234567895"),
+            Socio(id="1006", nombre="Juan Pérez", vencimiento=hoy.strftime("%Y-%m-%d")),
         ]
         
         for socio in socios:
