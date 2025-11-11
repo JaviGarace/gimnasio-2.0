@@ -21,9 +21,6 @@ class Socio(SQLModel, table=True):
     id: str = Field(primary_key=True)
     nombre: str
     vencimiento: str
-    # REMOVER email y telefono por ahora para evitar el error
-    # email: Optional[str] = None
-    # telefono: Optional[str] = None
 
 class Entrada(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -297,9 +294,6 @@ def obtener_vencimientos_proximos(dias: int = 3, session: Session = Depends(get_
                     "vencimiento": socio.vencimiento,
                     "dias_restantes": dias_restantes,
                     "estado": "HOY" if dias_restantes == 0 else f"en {dias_restantes} días",
-                    # REMOVER email y telefono por ahora
-                    # "email": socio.email,
-                    # "telefono": socio.telefono
                 })
         except Exception as e:
             logger.warning(f"Error procesando socio {socio.id}: {e}")
@@ -332,9 +326,6 @@ def obtener_socios_morosos(session: Session = Depends(get_session)):
                     "vencimiento": socio.vencimiento,
                     "dias_vencido": dias_vencido,
                     "estado": f"Vencida hace {dias_vencido} días",
-                    # REMOVER email y telefono por ahora
-                    # "email": socio.email,
-                    # "telefono": socio.telefono
                 })
         except Exception as e:
             logger.warning(f"Error procesando socio {socio.id}: {e}")
@@ -394,18 +385,19 @@ def enviar_recordatorio_vencimiento(socio_id: str, session: Session = Depends(ge
         logger.error(f"Error enviando recordatorio: {e}")
         raise HTTPException(status_code=500, detail=f"Error al enviar recordatorio: {str(e)}")
 
-# === DATOS DE PRUEBA ===
+# === DATOS DE PRUEBA CORREGIDOS ===
 @app.post("/datos-prueba/notificaciones")
 def crear_datos_prueba_notificaciones(session: Session = Depends(get_session)):
-    """Crea datos de prueba completos para el sistema de notificaciones"""
+    """Crea datos de prueba completos para el sistema de notificaciones (CORREGIDA)"""
     try:
         # LIMPIAR DATOS EN ORDEN CORRECTO (para evitar Foreign Key violations)
-        session.exec(select(Entrada).delete())
-        session.exec(select(Reserva).delete())
-        session.exec(select(Pago).delete())
-        session.exec(select(Socio).delete())
-        session.exec(select(Clase).delete())
-        session.exec(select(PlanMembresia).delete())
+        # Usar session.exec() en lugar de session.exec().delete() para compatibilidad
+        session.exec(Entrada.__table__.delete())
+        session.exec(Reserva.__table__.delete())
+        session.exec(Pago.__table__.delete())
+        session.exec(Socio.__table__.delete())
+        session.exec(Clase.__table__.delete())
+        session.exec(PlanMembresia.__table__.delete())
         
         session.commit()
         
@@ -561,17 +553,21 @@ def listar_entradas(session: Session = Depends(get_session)):
 # === ENDPOINTS EXISTENTES - CLASES ===
 @app.get("/clases/")
 def listar_clases(session: Session = Depends(get_session)):
-    # Inicialización perezosa: crea clases si no existen
-    if session.exec(select(Clase)).first() is None:
-        clases_ejemplo = [
-            Clase(nombre="Yoga", dia_semana="lunes", hora_inicio="18:00", instructor="María Silva"),
-            Clase(nombre="Spinning", dia_semana="martes", hora_inicio="19:30", instructor="Carlos Ruiz"),
-            Clase(nombre="Funcional", dia_semana="miércoles", hora_inicio="20:30", instructor="Ana Torres"),
-        ]
-        for clase in clases_ejemplo:
-            session.add(clase)
-        session.commit()
-    return session.exec(select(Clase)).all()
+    logger.info("Intentando listar clases...")
+    try:
+        clases = session.exec(select(Clase)).all()
+        logger.info(f"Encontradas {len(clases)} clases")
+        return clases
+    except Exception as e:
+        logger.error(f"Error al listar clases: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/clases/")
+def crear_clase(clase: Clase, session: Session = Depends(get_session)):
+    session.add(clase)
+    session.commit()
+    session.refresh(clase)
+    return clase
 
 # === ENDPOINTS EXISTENTES - RESERVAS ===
 @app.post("/reservas/")
