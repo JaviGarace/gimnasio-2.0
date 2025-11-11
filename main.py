@@ -1,5 +1,5 @@
-﻿# main.py - API FastAPI Completa con Notificaciones y Datos Iniciales (CORREGIDA)
-from fastapi import FastAPI, Depends, HTTPException, Request
+﻿# main.py - API FastAPI Completa (LIMPIA Y CORREGIDA)
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Optional, List
@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import os
 import uvicorn
 import logging
-import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./temp.db")
 engine = create_engine(DATABASE_URL, echo=True)
 
-# === MODELOS DE DATOS CORREGIDOS ===
+# === MODELOS DE DATOS (SIMPLIFICADOS Y CORREGIDOS) ===
 class Socio(SQLModel, table=True):
     id: str = Field(primary_key=True)
     nombre: str
@@ -92,10 +91,14 @@ def inicializar_datos_iniciales():
     logger.info(" Inicializando datos iniciales...")
     
     with Session(engine) as session:
-        # Verificar si ya existen datos
-        if session.exec(select(Socio)).first() is not None:
-            logger.info(" Datos ya existen, saltando inicialización")
-            return
+        # Verificar si ya existen datos (chequeo simple)
+        try:
+            primer_socio = session.exec(select(Socio)).first()
+            if primer_socio is not None:
+                logger.info(" Datos ya existen, saltando inicialización")
+                return
+        except:
+            pass  # Si hay error en la consulta, asumimos que no hay datos
         
         logger.info(" Creando datos iniciales...")
         
@@ -201,304 +204,31 @@ def inicializar_datos_iniciales():
 def startup_event():
     inicializar_datos_iniciales()
 
-# === FUNCIONES AUXILIARES ===
-def procesar_mensaje(mensaje: str, session: Session):
-    texto = mensaje.lower().strip()
-    respuesta = ""
-
-    # Extraer ID
-    id_socio = None
-    for palabra in texto.split():
-        if palabra.isdigit() and len(palabra) >= 4:
-            id_socio = palabra[:4]
-            break
-
-    if any(p in texto for p in ["clase", "spinning", "yoga", "funcional", "horario"]):
-        respuesta = "Hoy: Yoga 18h, Spinning 19:30, Funcional 20:30."
-    elif any(p in texto for p in ["vencimiento", "caduca", "vence", "abono", "membresía"]):
-        if id_socio:
-            socio = session.exec(select(Socio).where(Socio.id == id_socio)).first()
-            if socio:
-                nombre, vencimiento = socio.nombre, socio.vencimiento
-                venc = datetime.strptime(vencimiento, "%Y-%m-%d")
-                hoy = datetime.today()
-                dias = (venc - hoy).days
-                if dias < 0:
-                    respuesta = f"{nombre}, tu membresía está vencida."
-                elif dias <= 3:
-                    respuesta = f"Vence en {dias} días, {nombre}."
-                else:
-                    respuesta = f"Válida hasta {vencimiento}, {nombre}."
-            else:
-                respuesta = "ID no encontrado."
-        else:
-            respuesta = "Ej: vencimiento 1001"
-    elif any(p in texto for p in ["entrada", "registr", "apunt", "llegar"]):
-        if id_socio:
-            socio = session.exec(select(Socio).where(Socio.id == id_socio)).first()
-            if socio:
-                nombre = socio.nombre
-                ahora = datetime.now().strftime("%H:%M")
-                respuesta = f"¡Bienvenido, {nombre}! Entrada registrada a las {ahora}."
-            else:
-                respuesta = "ID no válido."
-        else:
-            respuesta = "Ej: entrada 1005"
-    else:
-        respuesta = "No entendí. Usa: vencimiento 1001, entrada 1005 o clases"
-    
-    return respuesta
-
-# === ENDPOINTS BÁSICOS ===
-@app.get("/")
-def home():
-    return {"mensaje": "¡Sistema de Gimnasio con Notificaciones Automáticas!"}
-
-@app.get("/debug-routes")
-def debug_routes():
-    routes = []
-    for route in app.routes:
-        routes.append({
-            "path": getattr(route, "path", "N/A"),
-            "methods": getattr(route, "methods", "N/A"),
-            "name": getattr(route, "name", "N/A")
-        })
-    return {"routes": routes}
-
-@app.get("/create-tables")
-def create_tables():
+# === ENDPOINTS EXISTENTES - CLASES (CORREGIDO) ===
+@app.get("/clases/")
+def listar_clases(session: Session = Depends(get_session)):
+    """Endpoint corregido para listar clases"""
     try:
-        SQLModel.metadata.create_all(engine)
-        return {"message": " Todas las tablas creadas exitosamente", "tablas": list(SQLModel.metadata.tables.keys())}
+        logger.info("Intentando listar clases...")
+        clases = session.exec(select(Clase)).all()
+        logger.info(f" Encontradas {len(clases)} clases")
+        return clases
     except Exception as e:
-        return {"error": f" Error creando tablas: {str(e)}"}
+        logger.error(f" Error al listar clases: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener clases: {str(e)}")
 
-# === SISTEMA DE NOTIFICACIONES AUTOMÁTICAS ===
-@app.get("/notificaciones/vencimientos-proximos")
-def obtener_vencimientos_proximos(dias: int = 3, session: Session = Depends(get_session)):
-    """Obtiene socios con vencimientos próximos para notificar"""
-    hoy = datetime.now().date()
-    fecha_limite = hoy + timedelta(days=dias)
-    
-    socios = session.exec(select(Socio)).all()
-    
-    vencimientos_proximos = []
-    for socio in socios:
-        try:
-            vencimiento = datetime.strptime(socio.vencimiento, "%Y-%m-%d").date()
-            if hoy <= vencimiento <= fecha_limite:
-                dias_restantes = (vencimiento - hoy).days
-                vencimientos_proximos.append({
-                    "socio_id": socio.id,
-                    "nombre": socio.nombre,
-                    "vencimiento": socio.vencimiento,
-                    "dias_restantes": dias_restantes,
-                    "estado": "HOY" if dias_restantes == 0 else f"en {dias_restantes} días",
-                })
-        except Exception as e:
-            logger.warning(f"Error procesando socio {socio.id}: {e}")
-            continue
-    
-    return {
-        "status": "success",
-        "total_vencimientos": len(vencimientos_proximos),
-        "vencimientos": vencimientos_proximos,
-        "fecha_consulta": hoy.isoformat(),
-        "dias_anticipacion": dias
-    }
-
-@app.get("/notificaciones/socios-morosos")
-def obtener_socios_morosos(session: Session = Depends(get_session)):
-    """Obtiene socios con membresía vencida"""
-    hoy = datetime.now().date()
-    
-    socios = session.exec(select(Socio)).all()
-    
-    socios_morosos = []
-    for socio in socios:
-        try:
-            vencimiento = datetime.strptime(socio.vencimiento, "%Y-%m-%d").date()
-            if vencimiento < hoy:
-                dias_vencido = (hoy - vencimiento).days
-                socios_morosos.append({
-                    "socio_id": socio.id,
-                    "nombre": socio.nombre,
-                    "vencimiento": socio.vencimiento,
-                    "dias_vencido": dias_vencido,
-                    "estado": f"Vencida hace {dias_vencido} días",
-                })
-        except Exception as e:
-            logger.warning(f"Error procesando socio {socio.id}: {e}")
-            continue
-    
-    return {
-        "status": "success",
-        "total_morosos": len(socios_morosos),
-        "socios_morosos": socios_morosos,
-        "fecha_consulta": hoy.isoformat()
-    }
-
-@app.post("/notificaciones/enviar-recordatorio")
-def enviar_recordatorio_vencimiento(socio_id: str, session: Session = Depends(get_session)):
-    """Envía recordatorio de vencimiento a un socio específico"""
-    socio = session.exec(select(Socio).where(Socio.id == socio_id)).first()
-    if not socio:
-        raise HTTPException(status_code=404, detail="Socio no encontrado")
-    
+@app.post("/clases/")
+def crear_clase(clase: Clase, session: Session = Depends(get_session)):
+    """Crear una nueva clase"""
     try:
-        vencimiento = datetime.strptime(socio.vencimiento, "%Y-%m-%d").date()
-        hoy = datetime.now().date()
-        dias_restantes = (vencimiento - hoy).days
-        
-        if dias_restantes < 0:
-            mensaje = f" Hola {socio.nombre}, tu membresía está VENCIDA desde hace {-dias_restantes} días. Por favor, renueva tu plan."
-            tipo = "MOROSO"
-        elif dias_restantes == 0:
-            mensaje = f" Hola {socio.nombre}, tu membresía VENCE HOY. ¡No te quedes sin acceso!"
-            tipo = "VENCE_HOY"
-        else:
-            mensaje = f" Hola {socio.nombre}, tu membresía vence en {dias_restantes} días ({socio.vencimiento}). ¡Renueva a tiempo!"
-            tipo = "RECORDATORIO"
-        
-        # Simular envío de notificación (en producción integrar con Twilio/Email)
-        resultado_notificacion = {
-            "estado": "enviado",
-            "tipo": tipo,
-            "mensaje": mensaje,
-            "canal": "whatsapp_simulado",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        return {
-            "status": "success",
-            "message": "Notificación enviada exitosamente",
-            "socio": {
-                "id": socio.id,
-                "nombre": socio.nombre,
-                "vencimiento": socio.vencimiento,
-                "dias_restantes": dias_restantes
-            },
-            "notificacion": resultado_notificacion
-        }
-        
-    except Exception as e:
-        logger.error(f"Error enviando recordatorio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al enviar recordatorio: {str(e)}")
-
-# === DATOS DE PRUEBA CORREGIDOS ===
-@app.post("/datos-prueba/notificaciones")
-def crear_datos_prueba_notificaciones(session: Session = Depends(get_session)):
-    """Crea datos de prueba completos para el sistema de notificaciones (CORREGIDA)"""
-    try:
-        # LIMPIAR DATOS EN ORDEN CORRECTO (para evitar Foreign Key violations)
-        # Usar session.exec() en lugar de session.exec().delete() para compatibilidad
-        session.exec(Entrada.__table__.delete())
-        session.exec(Reserva.__table__.delete())
-        session.exec(Pago.__table__.delete())
-        session.exec(Socio.__table__.delete())
-        session.exec(Clase.__table__.delete())
-        session.exec(PlanMembresia.__table__.delete())
-        
+        session.add(clase)
         session.commit()
-        
-        # Crear planes de membresía
-        planes = [
-            PlanMembresia(
-                nombre="Básico",
-                precio=50.00,
-                duracion_dias=30,
-                descripcion="Acceso a instalaciones básicas"
-            ),
-            PlanMembresia(
-                nombre="Premium", 
-                precio=80.00,
-                duracion_dias=30,
-                descripcion="Acceso ilimitado a todas las clases"
-            ),
-            PlanMembresia(
-                nombre="Familiar",
-                precio=120.00,
-                duracion_dias=30, 
-                descripcion="Para hasta 4 personas"
-            )
-        ]
-        
-        for plan in planes:
-            session.add(plan)
-        
-        session.commit()
-        
-        # Crear socios con diferentes estados de vencimiento
-        hoy = datetime.now().date()
-        socios = [
-            # Vencen pronto
-            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=2)).strftime("%Y-%m-%d")),
-            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=1)).strftime("%Y-%m-%d")),
-            # Morosos
-            Socio(id="1003", nombre="María Rodríguez", vencimiento=(hoy - timedelta(days=5)).strftime("%Y-%m-%d")),
-            Socio(id="1004", nombre="Pedro Martínez", vencimiento=(hoy - timedelta(days=15)).strftime("%Y-%m-%d")),
-            # Al día
-            Socio(id="1005", nombre="Laura Hernández", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d")),
-            # Vence hoy
-            Socio(id="1006", nombre="Juan Pérez", vencimiento=hoy.strftime("%Y-%m-%d")),
-        ]
-        
-        for socio in socios:
-            session.add(socio)
-        
-        # Crear clases
-        clases = [
-            Clase(nombre="Yoga", dia_semana="lunes", hora_inicio="18:00", instructor="María Silva"),
-            Clase(nombre="Spinning", dia_semana="martes", hora_inicio="19:30", instructor="Carlos Ruiz"),
-            Clase(nombre="Funcional", dia_semana="miércoles", hora_inicio="20:30", instructor="Ana Torres"),
-        ]
-        
-        for clase in clases:
-            session.add(clase)
-        
-        session.commit()
-        
-        return {
-            "status": "success",
-            "message": " Datos de prueba creados exitosamente",
-            "resumen": {
-                "planes": len(planes),
-                "socios": len(socios),
-                "clases": len(clases),
-                "estados_socios": {
-                    "vencen_pronto": 3,  # 1001, 1002, 1006
-                    "morosos": 2,        # 1003, 1004
-                    "al_dia": 1          # 1005
-                }
-            }
-        }
-        
+        session.refresh(clase)
+        return clase
     except Exception as e:
         session.rollback()
-        logger.error(f"Error creando datos de prueba: {e}")
-        return {"status": "error", "message": f"Error creando datos: {str(e)}"}
-
-# === ENDPOINT DE VERIFICACIÓN ===
-@app.get("/sistema-notificaciones/status")
-def status_notificaciones():
-    """Estado completo del sistema de notificaciones"""
-    return {
-        "sistema": "Notificaciones Automáticas",
-        "version": "2.1.0",
-        "status": "ACTIVO",
-        "endpoints_principales": [
-            "GET /notificaciones/vencimientos-proximos",
-            "GET /notificaciones/socios-morosos", 
-            "POST /notificaciones/enviar-recordatorio?socio_id=1001",
-        ],
-        "caracteristicas": [
-            "Recordatorios de vencimiento",
-            "Detección de morosidad", 
-            "Integración WhatsApp simulada",
-            "Gestión de contactos"
-        ],
-        "timestamp": datetime.now().isoformat()
-    }
+        logger.error(f" Error creando clase: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creando clase: {str(e)}")
 
 # === ENDPOINTS EXISTENTES - SOCIOS ===
 @app.get("/socios/{id_socio}")
@@ -513,10 +243,10 @@ def listar_socios(session: Session = Depends(get_session)):
     logger.info("Intentando listar socios...")
     try:
         socios = session.exec(select(Socio)).all()
-        logger.info(f"Encontrados {len(socios)} socios")
+        logger.info(f" Encontrados {len(socios)} socios")
         return socios
     except Exception as e:
-        logger.error(f"Error al listar socios: {e}")
+        logger.error(f" Error al listar socios: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/socios/")
@@ -550,25 +280,6 @@ def registrar_entrada(socio_id: str, session: Session = Depends(get_session)):
 def listar_entradas(session: Session = Depends(get_session)):
     return session.exec(select(Entrada)).all()
 
-# === ENDPOINTS EXISTENTES - CLASES ===
-@app.get("/clases/")
-def listar_clases(session: Session = Depends(get_session)):
-    logger.info("Intentando listar clases...")
-    try:
-        clases = session.exec(select(Clase)).all()
-        logger.info(f"Encontradas {len(clases)} clases")
-        return clases
-    except Exception as e:
-        logger.error(f"Error al listar clases: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/clases/")
-def crear_clase(clase: Clase, session: Session = Depends(get_session)):
-    session.add(clase)
-    session.commit()
-    session.refresh(clase)
-    return clase
-
 # === ENDPOINTS EXISTENTES - RESERVAS ===
 @app.post("/reservas/")
 def crear_reserva(socio_id: str, clase_id: int, session: Session = Depends(get_session)):
@@ -578,6 +289,8 @@ def crear_reserva(socio_id: str, clase_id: int, session: Session = Depends(get_s
     clase = session.exec(select(Clase).where(Clase.id == clase_id)).first()
     if not clase:
         raise HTTPException(status_code=404, detail="Clase no encontrada")
+    
+    # Verificar si ya existe una reserva para esta clase
     reserva_existente = session.exec(
         select(Reserva).where(
             Reserva.socio_id == socio_id,
@@ -587,14 +300,17 @@ def crear_reserva(socio_id: str, clase_id: int, session: Session = Depends(get_s
     ).first()
     if reserva_existente:
         raise HTTPException(status_code=409, detail="Ya tienes una reserva para esta clase")
-    reservas_actuales = session.exec(
+    
+    # Verificar capacidad
+    reservas_clase = session.exec(
         select(Reserva).where(
             Reserva.clase_id == clase_id,
             Reserva.estado == "confirmada"
         )
     ).all()
-    if len(reservas_actuales) >= clase.capacidad_max:
+    if len(reservas_clase) >= clase.capacidad_max:
         raise HTTPException(status_code=409, detail="Clase llena")
+    
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     reserva = Reserva(
         socio_id=socio_id,
@@ -623,39 +339,35 @@ def cancelar_reserva(reserva_id: int, session: Session = Depends(get_session)):
 # === ENDPOINTS EXISTENTES - PLANES DE MEMBRESÍA ===
 @app.get("/planes/")
 def listar_planes(session: Session = Depends(get_session)):
-    # Verificar si ya existen planes, si no, crearlos
-    planes_existentes = session.exec(select(PlanMembresia)).first()
-    
-    if not planes_existentes:
-        # Crear planes de ejemplo
+    planes = session.exec(select(PlanMembresia)).all()
+    if not planes:
+        # Crear planes por defecto si no existen
         planes_ejemplo = [
             PlanMembresia(
                 nombre="Básico",
                 precio=50.00,
                 duracion_dias=30,
-                descripcion="Acceso a instalaciones básicas en horario estándar"
+                descripcion="Acceso a instalaciones básicas"
             ),
             PlanMembresia(
                 nombre="Premium", 
                 precio=80.00,
                 duracion_dias=30,
-                descripcion="Acceso ilimitado a todas las clases e instalaciones"
+                descripcion="Acceso ilimitado a todas las clases"
             ),
             PlanMembresia(
                 nombre="Familiar",
                 precio=120.00,
                 duracion_dias=30, 
-                descripcion="Para hasta 4 personas - Ahorro familiar"
+                descripcion="Para hasta 4 personas"
             )
         ]
-        
         for plan in planes_ejemplo:
             session.add(plan)
         session.commit()
-        print(" Planes de membresía creados automáticamente")
+        planes = session.exec(select(PlanMembresia)).all()
+        logger.info(" Planes de membresía creados automáticamente")
     
-    # Devolver todos los planes
-    planes = session.exec(select(PlanMembresia)).all()
     return planes
 
 # === ENDPOINTS EXISTENTES - PAGOS ===
@@ -677,7 +389,6 @@ def registrar_pago(
         raise HTTPException(status_code=404, detail="Plan no encontrado")
     
     # Calcular fechas
-    from datetime import datetime, timedelta
     fecha_pago = datetime.now().strftime("%Y-%m-%d")
     fecha_vencimiento = (datetime.now() + timedelta(days=plan.duracion_dias)).strftime("%Y-%m-%d")
     
@@ -714,210 +425,58 @@ def registrar_pago(
 def listar_pagos(session: Session = Depends(get_session)):
     return session.exec(select(Pago)).all()
 
-@app.get("/pagos/socio/{socio_id}")
-def obtener_pagos_socio(socio_id: str, session: Session = Depends(get_session)):
-    pagos = session.exec(select(Pago).where(Pago.socio_id == socio_id)).all()
-    if not pagos:
-        raise HTTPException(status_code=404, detail="No se encontraron pagos para este socio")
-    return pagos
-
-@app.get("/estado-cuenta/{socio_id}")
-def obtener_estado_cuenta(socio_id: str, session: Session = Depends(get_session)):
-    socio = session.exec(select(Socio).where(Socio.id == socio_id)).first()
-    if not socio:
-        raise HTTPException(status_code=404, detail="Socio no encontrado")
+# === SISTEMA DE NOTIFICACIONES AUTOMÁTICAS ===
+@app.get("/notificaciones/vencimientos-proximos")
+def obtener_vencimientos_proximos(dias: int = 3, session: Session = Depends(get_session)):
+    """Obtiene socios con vencimientos próximos"""
+    hoy = datetime.now().date()
+    fecha_limite = hoy + timedelta(days=dias)
     
-    pagos = session.exec(select(Pago).where(Pago.socio_id == socio_id)).all()
+    socios = session.exec(select(Socio)).all()
     
-    return {
-        "socio": socio,
-        "pagos": pagos,
-        "total_gastado": sum(pago.monto for pago in pagos),
-        "pagos_totales": len(pagos)
-    }
-
-# === ENDPOINTS EXISTENTES - REPORTES (VERSIÓN MEJORADA) ===
-@app.get("/reportes/ingresos-mensuales")
-def reporte_ingresos_mensuales(
-    año: int = None, 
-    session: Session = Depends(get_session)
-):
-    """Reporte de ingresos mensuales con comparativa - VERSIÓN MEJORADA"""
-    try:
-        if año is None:
-            año = datetime.now().year
-        
-        # Obtener pagos del año especificado
-        pagos = session.exec(select(Pago).where(Pago.estado == "pagado")).all()
-        
-        if not pagos:
-            return {"message": "No hay datos de pagos para generar el reporte"}
-        
-        # Procesamiento manual sin pandas
-        ingresos_por_mes = {mes: 0 for mes in range(1, 13)}
-        ingresos_anterior = {mes: 0 for mes in range(1, 13)}
-        planes_count = {}
-        
-        for pago in pagos:
-            try:
-                fecha = datetime.strptime(pago.fecha_pago, "%Y-%m-%d")
-                mes = fecha.month
-                año_pago = fecha.year
-                
-                if año_pago == año:
-                    ingresos_por_mes[mes] += pago.monto
-                    planes_count[pago.plan_id] = planes_count.get(pago.plan_id, 0) + 1
-                elif año_pago == año - 1:
-                    ingresos_anterior[mes] += pago.monto
-            except:
-                continue
-        
-        # Filtrar meses con datos
-        ingresos_por_mes = {k: v for k, v in ingresos_por_mes.items() if v > 0}
-        ingresos_anterior = {k: v for k, v in ingresos_anterior.items() if v > 0}
-        
-        # Top planes
-        planes_populares = dict(sorted(planes_count.items(), key=lambda x: x[1], reverse=True)[:5])
-        
-        total_ingresos = sum(ingresos_por_mes.values())
-        total_pagos = sum(planes_count.values())
-        
-        return {
-            "año_actual": año,
-            "ingresos_totales": total_ingresos,
-            "ingresos_mensuales": ingresos_por_mes,
-            "comparativa_año_anterior": ingresos_anterior,
-            "planes_populares": planes_populares,
-            "total_pagos": total_pagos,
-            "promedio_pago": total_ingresos / total_pagos if total_pagos > 0 else 0
-        }
-    except Exception as e:
-        return {"error": f"Error generando reporte: {str(e)}"}
-
-@app.get("/reportes/asistencia-horarios")
-def reporte_asistencia_horarios(
-    mes: int = None,
-    año: int = None,
-    session: Session = Depends(get_session)
-):
-    """Reporte de análisis de asistencia por horarios - VERSIÓN MEJORADA"""
-    try:
-        if mes is None:
-            mes = datetime.now().month
-        if año is None:
-            año = datetime.now().year
-        
-        # Obtener entradas
-        entradas = session.exec(select(Entrada)).all()
-        
-        if not entradas:
-            return {"message": "No hay datos de entradas para generar el reporte"}
-        
-        # Procesamiento manual
-        asistencia_por_hora = {}
-        asistencia_por_dia = {}
-        socios_count = {}
-        
-        for entrada in entradas:
-            try:
-                fecha_hora = datetime.strptime(entrada.fecha_hora, "%Y-%m-%d %H:%M:%S")
-                if fecha_hora.month == mes and fecha_hora.year == año:
-                    hora = fecha_hora.hour
-                    dia_semana = fecha_hora.strftime("%A")  # Monday, Tuesday, etc.
-                    
-                    # Conteo por hora
-                    asistencia_por_hora[hora] = asistencia_por_hora.get(hora, 0) + 1
-                    
-                    # Conteo por día
-                    asistencia_por_dia[dia_semana] = asistencia_por_dia.get(dia_semana, 0) + 1
-                    
-                    # Conteo por socio
-                    socios_count[entrada.nombre_socio] = socios_count.get(entrada.nombre_socio, 0) + 1
-            except:
-                continue
-        
-        # Top 10 socios más activos
-        socios_activos = dict(sorted(socios_count.items(), key=lambda x: x[1], reverse=True)[:10])
-        
-        # Encontrar hora pico y día más activo
-        hora_pico = max(asistencia_por_hora, key=asistencia_por_hora.get) if asistencia_por_hora else None
-        dia_mas_activo = max(asistencia_por_dia, key=asistencia_por_dia.get) if asistencia_por_dia else None
-        
-        total_entradas = sum(asistencia_por_hora.values())
-        
-        return {
-            "mes": mes,
-            "año": año,
-            "total_entradas": total_entradas,
-            "asistencia_por_hora": asistencia_por_hora,
-            "asistencia_por_dia": asistencia_por_dia,
-            "socios_mas_activos": socios_activos,
-            "hora_pico": hora_pico,
-            "dia_mas_activo": dia_mas_activo
-        }
-    except Exception as e:
-        return {"error": f"Error generando reporte: {str(e)}"}
-
-@app.get("/reportes/popularidad-instructores")
-def reporte_popularidad_instructores(session: Session = Depends(get_session)):
-    """Reporte de popularidad de instructores - VERSIÓN MEJORADA"""
-    try:
-        # Obtener reservas confirmadas
-        reservas = session.exec(select(Reserva).where(Reserva.estado == "confirmada")).all()
-        
-        if not reservas:
-            return {"message": "No hay datos de reservas para generar el reporte"}
-        
-        # Procesamiento manual
-        instructores_count = {}
-        clases_count = {}
-        horarios_count = {}
-        
-        for reserva in reservas:
-            try:
-                clase = session.exec(select(Clase).where(Clase.id == reserva.clase_id)).first()
-                if clase:
-                    # Popularidad por instructor
-                    instructores_count[clase.instructor] = instructores_count.get(clase.instructor, 0) + 1
-                    
-                    # Popularidad por clase
-                    clases_count[clase.nombre] = clases_count.get(clase.nombre, 0) + 1
-                    
-                    # Popularidad por horario
-                    horarios_count[clase.hora_inicio] = horarios_count.get(clase.hora_inicio, 0) + 1
-            except:
-                continue
-        
-        # Top 5 de cada categoría
-        instructores_populares = dict(sorted(instructores_count.items(), key=lambda x: x[1], reverse=True))
-        clases_populares = dict(sorted(clases_count.items(), key=lambda x: x[1], reverse=True)[:5])
-        horarios_populares = dict(sorted(horarios_count.items(), key=lambda x: x[1], reverse=True)[:5])
-        
-        return {
-            "popularidad_instructores": instructores_populares,
-            "clases_populares": clases_populares,
-            "horarios_populares": horarios_populares,
-            "total_reservas_analizadas": len(reservas)
-        }
-    except Exception as e:
-        return {"error": f"Error generando reporte: {str(e)}"}
-
-@app.get("/debug-reportes")
-def debug_reportes():
-    """Debug específico para endpoints de reportes"""
-    reportes_routes = []
-    for route in app.routes:
-        if "reportes" in getattr(route, "path", ""):
-            reportes_routes.append({
-                "path": getattr(route, "path", "N/A"),
-                "methods": getattr(route, "methods", "N/A")
-            })
+    vencimientos_proximos = []
+    for socio in socios:
+        try:
+            vencimiento = datetime.strptime(socio.vencimiento, "%Y-%m-%d").date()
+            if hoy <= vencimiento <= fecha_limite:
+                dias_restantes = (vencimiento - hoy).days
+                vencimientos_proximos.append({
+                    "socio_id": socio.id,
+                    "nombre": socio.nombre,
+                    "vencimiento": socio.vencimiento,
+                    "dias_restantes": dias_restantes,
+                    "estado": "HOY" if dias_restantes == 0 else f"en {dias_restantes} días",
+                })
+        except Exception as e:
+            logger.warning(f"Error procesando socio {socio.id}: {e}")
+            continue
     
     return {
-        "total_reportes_routes": len(reportes_routes),
-        "reportes_routes": reportes_routes,
-        "status": " Endpoints de reportes registrados" if reportes_routes else " No hay endpoints de reportes"
+        "status": "success",
+        "total_vencimientos": len(vencimientos_proximos),
+        "vencimientos": vencimientos_proximos,
+        "fecha_consulta": hoy.isoformat(),
+        "dias_anticipacion": dias
     }
+
+@app.get("/sistema-notificaciones/status")
+def status_notificaciones():
+    """Estado del sistema de notificaciones"""
+    return {
+        "sistema": "Notificaciones Automáticas",
+        "version": "2.1.0",
+        "status": "ACTIVO",
+        "endpoints_disponibles": [
+            "GET /notificaciones/vencimientos-proximos",
+            "POST /notificaciones/enviar-recordatorio"
+        ],
+        "timestamp": datetime.now().isoformat()
+    }
+
+# === ENDPOINT RAÍZ ===
+@app.get("/")
+def home():
+    return {"mensaje": "¡Sistema de Gimnasio con Notificaciones Automáticas!", "status": "activo"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
