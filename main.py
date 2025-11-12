@@ -1,16 +1,16 @@
-﻿# main.py - API FastAPI Corregida (Compatible con base de datos existente)
+﻿# main.py - API LIMPIA Y FUNCIONAL (RESET TOTAL)
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
-# Configuración de base de datos
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./gym_clean.db")
-engine = create_engine(DATABASE_URL)
+# Usar base de datos limpia
+DATABASE_URL = "sqlite:///./gimnasio_limpio.db"
+engine = create_engine(DATABASE_URL, echo=True)
 
-# Modelos corregidos (compatibles con la base de datos existente)
+# Modelos limpios y simples
 class Socio(SQLModel, table=True):
     id: str = Field(primary_key=True)
     nombre: str
@@ -21,10 +21,8 @@ class Clase(SQLModel, table=True):
     nombre: str
     dia_semana: str
     hora_inicio: str
-    # REMOVER 'instructor' porque no existe en la base de datos
-    duracion_min: int = 60
+    instructor: str = "Instructor Por Definir"  # AHORA SÍ INCLUIMOS ESTA COLUMNA
     capacidad_max: int = 20
-    # NOTA: No incluimos 'instructor' porque causa el error
 
 class Reserva(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -32,7 +30,31 @@ class Reserva(SQLModel, table=True):
     clase_id: int
     estado: str = "confirmada"
 
-# Crear tablas (solo las que son compatibles)
+class PlanMembresia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nombre: str = Field(index=True)
+    precio: float
+    duracion_dias: int
+    descripcion: str
+    activo: bool = True
+
+class Pago(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    socio_id: str
+    plan_id: int
+    monto: float
+    fecha_pago: str
+    fecha_vencimiento: str
+    estado: str = "pendiente"
+    metodo_pago: str = "efectivo"
+
+class Entrada(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    socio_id: str
+    nombre_socio: str
+    fecha_hora: str
+
+# Crear tablas
 SQLModel.metadata.create_all(engine)
 
 # Dependencia de sesión
@@ -41,7 +63,7 @@ def get_session():
         yield session
 
 # Aplicación FastAPI
-app = FastAPI(title="API Gimnasio - Compatible")
+app = FastAPI(title="Gimnasio Limpio - RESET TOTAL")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,20 +73,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Endpoints corregidos
+# Endpoints funcionales
 @app.get("/")
 def root():
-    return {"mensaje": "API funcionando", "status": "activo"}
+    return {"mensaje": "API limpia y funcional", "estado": "activo"}
 
 @app.get("/clases/")
 def get_clases(session: Session = Depends(get_session)):
     try:
-        # SELECCIONAR SOLO LAS COLUMNAS QUE EXISTEN EN LA BASE DE DATOS
         clases = session.exec(select(Clase)).all()
         return clases
     except Exception as e:
-        print(f"Error obteniendo clases: {e}")  # Para debugging
-        raise HTTPException(status_code=500, detail=f"Error obteniendo clases: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/socios/")
 def get_socios(session: Session = Depends(get_session)):
@@ -72,7 +92,7 @@ def get_socios(session: Session = Depends(get_session)):
         socios = session.exec(select(Socio)).all()
         return socios
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error obteniendo socios: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/reservas/")
 def get_reservas(session: Session = Depends(get_session)):
@@ -80,36 +100,69 @@ def get_reservas(session: Session = Depends(get_session)):
         reservas = session.exec(select(Reserva)).all()
         return reservas
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error obteniendo reservas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-# Inicializar datos básicos (solo si no existen)
+@app.get("/planes/")
+def get_planes(session: Session = Depends(get_session)):
+    try:
+        planes = session.exec(select(PlanMembresia)).all()
+        return planes
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.get("/pagos/")
+def get_pagos(session: Session = Depends(get_session)):
+    try:
+        pagos = session.exec(select(Pago)).all()
+        return pagos
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.get("/entradas/")
+def get_entradas(session: Session = Depends(get_session)):
+    try:
+        entradas = session.exec(select(Entrada)).all()
+        return entradas
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# Inicializar datos limpios
 def inicializar_datos():
     with Session(engine) as session:
-        # Verificar si ya hay clases
-        try:
-            primera_clase = session.exec(select(Clase)).first()
-            if primera_clase is not None:
-                print(" Clases ya existen, no se inicializan de nuevo")
-                return
-        except:
-            pass  # Si hay error, asumimos que no hay datos
+        # Verificar si ya hay datos
+        if session.exec(select(Socio)).first() is not None:
+            return  # Ya hay datos, no inicializar de nuevo
         
-        print(" Creando datos iniciales...")
-        
-        # Crear clases de ejemplo (SIN instructor para evitar el error)
-        clases_ejemplo = [
-            Clase(nombre="Yoga", dia_semana="lunes", hora_inicio="18:00", duracion_min=60, capacidad_max=15),
-            Clase(nombre="Spinning", dia_semana="martes", hora_inicio="19:30", duracion_min=45, capacidad_max=20),
-            Clase(nombre="Funcional", dia_semana="miércoles", hora_inicio="20:30", duracion_min=60, capacidad_max=18),
+        # Crear planes
+        planes = [
+            PlanMembresia(nombre="Básico", precio=50.0, duracion_dias=30, descripcion="Acceso básico"),
+            PlanMembresia(nombre="Premium", precio=80.0, duracion_dias=30, descripcion="Acceso completo"),
+            PlanMembresia(nombre="Familiar", precio=120.0, duracion_dias=30, descripcion="Hasta 4 personas")
         ]
+        for plan in planes:
+            session.add(plan)
         
-        for clase in clases_ejemplo:
+        # Crear socios
+        hoy = datetime.now().date()
+        socios = [
+            Socio(id="1001", nombre="Ana García", vencimiento=(hoy + timedelta(days=30)).strftime("%Y-%m-%d")),
+            Socio(id="1002", nombre="Carlos López", vencimiento=(hoy + timedelta(days=15)).strftime("%Y-%m-%d")),
+            Socio(id="1003", nombre="María Rodríguez", vencimiento=hoy.strftime("%Y-%m-%d")),
+        ]
+        for socio in socios:
+            session.add(socio)
+        
+        # Crear clases CORRECTAS (con instructor)
+        clases = [
+            Clase(nombre="Yoga", dia_semana="lunes", hora_inicio="18:00", instructor="María Silva"),
+            Clase(nombre="Spinning", dia_semana="martes", hora_inicio="19:30", instructor="Carlos Ruiz"),
+            Clase(nombre="Funcional", dia_semana="miércoles", hora_inicio="20:30", instructor="Ana Torres"),
+        ]
+        for clase in clases:
             session.add(clase)
         
         session.commit()
-        print(" Clases de ejemplo creadas")
 
-# Iniciar datos al arrancar
 @app.on_event("startup")
 def startup():
     inicializar_datos()
