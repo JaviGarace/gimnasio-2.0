@@ -12,3 +12,10 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))  #  KOYEB USA 8080
     uvicorn.run(app, host="0.0.0.0", port=port)
+# [TODO: TU CÓDIGO ACTUAL AQUÍ...]
+
+# CRÍTICO: Esto debe estar al final de main.py
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
