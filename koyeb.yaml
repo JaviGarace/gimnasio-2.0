@@ -1,0 +1,19 @@
+﻿app: gimnasio-2-0
+services:
+  - name: gimnasio-2-0
+    type: web
+    build:
+      type: buildpack
+      buildpack: python
+    run: python main.py
+    ports:
+      - port: 8080
+        http: {}
+    env:
+      - name: PORT
+        value: "8080"
+    health_checks:
+      - http:
+          port: 8080
+          path: /health
+          method: GET
